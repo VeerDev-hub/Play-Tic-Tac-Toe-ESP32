@@ -10,11 +10,17 @@
 // a player. No two players share a character, so a player's id is simply the
 // number of their character. A match starts once two players have asked for
 // each other; accepting an invitation is just asking back.
+//
+// A chat message goes either to the opponent only or to everyone. The page hides
+// a message 15 seconds after showing it. Here it is erased as soon as everyone it
+// was sent to has seen it.
 
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 class TicTacToe {
  public:
@@ -28,6 +34,11 @@ class TicTacToe {
   static const uint32_t AWAY_MS = 5000;             // shown as "wandered off"
   static const uint32_t TIMEOUT_MS = 20000;         // character and game are given up
   static const uint32_t TAUNT_COOLDOWN_MS = 1500;
+  static const int NAME_BYTES = 36;             // same as NAME_BYTES in page.h
+  static const int MESSAGE_COUNT = 12;          // the oldest goes when this is full
+  static const int MESSAGE_BYTES = 160;         // same as MESSAGE_BYTES in page.h
+  static const uint32_t MESSAGE_MS = 60000;     // erased by then, seen or not
+  static const uint32_t CHAT_COOLDOWN_MS = 1000;
   static const int DRAW = 2;
 
   // Call first on every request: records that this device is alive and removes
@@ -39,8 +50,11 @@ class TicTacToe {
     for (int i = 0; i < AVATAR_COUNT; i++) {
       if (players[i].ip && now - players[i].lastSeen > TIMEOUT_MS) clearPlayer(i);
     }
-    for (Guest &g : guests) {
-      if (g.ip && now - g.lastSeen > TIMEOUT_MS) g = Guest();
+    for (int i = 0; i < GUEST_COUNT; i++) {
+      if (guests[i].ip && now - guests[i].lastSeen > TIMEOUT_MS) clearGuest(i);
+    }
+    for (Message &m : messages) {
+      if (m.waiting && now - m.sentAt > MESSAGE_MS) m = Message();
     }
   }
 
@@ -48,12 +62,33 @@ class TicTacToe {
   bool join(uint32_t ip, int avatar, uint32_t now) {
     if (!ip || playerOf(ip) >= 0 || avatar < 0 || avatar >= AVATAR_COUNT) return false;
     if (players[avatar].ip) return false;
-    for (Guest &g : guests) {
-      if (g.ip == ip) g = Guest();
+    for (Message &m : messages) {  // not from them, but from whoever had it before
+      if (m.waiting && m.from == avatar) m = Message();
     }
     players[avatar] = Player();
     players[avatar].ip = ip;
     players[avatar].lastSeen = now;
+    for (int i = 0; i < GUEST_COUNT; i++) {
+      if (guests[i].ip != ip) continue;
+      for (Message &m : messages) {  // unseen messages come along
+        if (m.waiting & guestBit(i)) m.waiting |= playerBit(avatar);
+      }
+      clearGuest(i);
+    }
+    return true;
+  }
+
+  // Names are optional; without one a player goes by their character.
+  bool setName(uint32_t ip, const char *name) {
+    int me = playerOf(ip);
+    size_t length;
+    if (me < 0 || !(name = clean(name, NAME_BYTES, length))) return false;
+    char text[NAME_BYTES + 1] = {};
+    memcpy(text, name, length);
+    for (int i = 0; i < AVATAR_COUNT; i++) {
+      if (i != me && players[i].ip && !strcasecmp(players[i].name, text)) return false;
+    }
+    memcpy(players[me].name, text, sizeof text);
     return true;
   }
 
@@ -148,6 +183,67 @@ class TicTacToe {
     return true;
   }
 
+  // Send a chat message to the opponent only, or to everyone who is here.
+  bool say(uint32_t ip, bool opponentOnly, const char *text, uint32_t now) {
+    int me = playerOf(ip);
+    if (me < 0) return false;
+    Player &p = players[me];
+    if (p.hasChatted && now - p.chattedAt < CHAT_COOLDOWN_MS) return false;
+
+    size_t length;
+    if (!(text = clean(text, MESSAGE_BYTES, length))) return false;
+    uint32_t others = 0;
+    if (opponentOnly) {
+      if (p.match < 0) return false;
+      const Match &m = matches[p.match];
+      others = playerBit(m.seats[m.seats[0].player == me ? 1 : 0].player);
+    } else {
+      for (int i = 0; i < AVATAR_COUNT; i++) {
+        if (players[i].ip && i != me) others |= playerBit(i);
+      }
+      for (int i = 0; i < GUEST_COUNT; i++) {
+        if (guests[i].ip) others |= guestBit(i);
+      }
+    }
+    if (!others) return false;
+
+    Message *slot = &messages[0];
+    for (Message &m : messages) {
+      if (!m.waiting) {
+        slot = &m;
+        break;
+      }
+      if (m.seq < slot->seq) slot = &m;
+    }
+    *slot = Message();
+    slot->seq = ++lastMessageSeq;
+    slot->sentAt = now;
+    slot->from = me;
+    slot->opponentOnly = opponentOnly;
+    slot->waiting = others | playerBit(me);  // the sender gets it back as well
+    memcpy(slot->text, text, length);
+    p.hasChatted = true;
+    p.chattedAt = now;
+    return true;
+  }
+
+  // This device has shown these messages: a comma-separated list of numbers.
+  void seen(uint32_t ip, const char *list) {
+    uint32_t bit = bitOf(ip);
+    if (!bit) return;
+    while (*list) {
+      char *end;
+      uint32_t seq = strtoul(list, &end, 10);
+      if (end == list) return;
+      for (Message &m : messages) {
+        if (m.seq != seq || !(m.waiting & bit)) continue;
+        m.waiting &= ~bit;
+        if (!m.waiting) m = Message();
+      }
+      list = *end == ',' ? end + 1 : end;
+    }
+  }
+
   // Writes the state as seen by this device, including the match it is in or,
   // failing that, the match it wants to watch. Returns the length written.
   int toJson(uint32_t ip, uint32_t watchId, uint32_t now, char *out, size_t size) const {
@@ -165,8 +261,10 @@ class TicTacToe {
     for (int i = 0; i < AVATAR_COUNT; i++) {
       const Player &p = players[i];
       if (!p.ip) continue;
-      w.add("%s{\"av\":%d,\"away\":%s,\"ask\":%d,\"match\":%lu}", comma, i, away(p, now), p.ask,
-            p.match < 0 ? 0UL : (unsigned long)matches[p.match].id);
+      w.add("%s{\"av\":%d,\"away\":%s,\"ask\":%d,\"match\":%lu,\"name\":", comma, i, away(p, now),
+            p.ask, p.match < 0 ? 0UL : (unsigned long)matches[p.match].id);
+      w.addString(p.name);
+      w.add("}");
       comma = ",";
     }
     w.add("],\"match\":");
@@ -183,6 +281,7 @@ class TicTacToe {
     }
     if (m) matchJson(*m, seat, now, w);
     else w.add("null");
+    chatJson(ip, w);
     w.add("}");
     return w.length;
   }
@@ -200,6 +299,9 @@ class TicTacToe {
     int ask = -1;        // player they want to play
     int refusedBy = -1;  // player who last said no to them
     int match = -1;      // index in matches
+    bool hasChatted = false;
+    uint32_t chattedAt = 0;
+    char name[NAME_BYTES + 1] = {};  // empty if they did not give one
   };
   struct Seat {
     int player = 0;
@@ -218,6 +320,15 @@ class TicTacToe {
     int turn = 0, starter = 0, winner = -1, winMask = 0, dare = 0;
   };
 
+  struct Message {
+    uint32_t seq = 0;
+    uint32_t sentAt = 0;
+    uint32_t waiting = 0;  // who still has to see it, one bit each; 0 means unused
+    int from = 0;          // player who sent it
+    bool opponentOnly = false;
+    char text[MESSAGE_BYTES + 1] = {};
+  };
+
   // Appends formatted text, and stops quietly when the buffer is full.
   struct Writer {
     char *out;
@@ -230,12 +341,19 @@ class TicTacToe {
       va_end(args);
       if (n > 0) length = length + n < size ? length + n : size - 1;
     }
+    void addString(const char *text) {  // with quotes, escaped for JSON
+      add("\"");
+      for (; *text; text++) add(*text == '"' || *text == '\\' ? "\\%c" : "%c", *text);
+      add("\"");
+    }
   };
 
   Player players[AVATAR_COUNT];
   Guest guests[GUEST_COUNT];
   Match matches[MATCH_COUNT];
+  Message messages[MESSAGE_COUNT];
   uint32_t lastMatchId = 0;
+  uint32_t lastMessageSeq = 0;
 
   int playerOf(uint32_t ip) const {
     if (!ip) return -1;
@@ -255,17 +373,24 @@ class TicTacToe {
 
   void touchGuest(uint32_t ip, uint32_t now) {
     if (!ip) return;
-    Guest *slot = nullptr;
-    for (Guest &g : guests) {
+    int slot = -1;
+    for (int i = 0; i < GUEST_COUNT; i++) {
+      const Guest &g = guests[i];
       if (g.ip == ip) {
-        slot = &g;
+        slot = i;
         break;
       }
       // Otherwise an unused slot, or the one that has been quiet the longest.
-      if (!slot || (slot->ip && (!g.ip || now - g.lastSeen > now - slot->lastSeen))) slot = &g;
+      if (slot < 0 || (guests[slot].ip && (!g.ip || now - g.lastSeen > now - guests[slot].lastSeen))) slot = i;
     }
-    slot->ip = ip;
-    slot->lastSeen = now;
+    if (guests[slot].ip != ip) clearGuest(slot);
+    guests[slot].ip = ip;
+    guests[slot].lastSeen = now;
+  }
+
+  void clearGuest(int index) {
+    forgetMessages(guestBit(index));
+    guests[index] = Guest();
   }
 
   bool startMatch(int first, int second) {
@@ -314,7 +439,70 @@ class TicTacToe {
   void clearPlayer(int id) {
     if (players[id].match >= 0) endMatch(players[id].match);
     forgetInvites(id);
+    forgetMessages(playerBit(id));
     players[id] = Player();
+  }
+
+  // Skips spaces around the text and returns its start, or nullptr if what is
+  // left is empty, too long or has control characters in it.
+  static const char *clean(const char *text, size_t maxBytes, size_t &length) {
+    while (*text == ' ') text++;
+    length = strlen(text);
+    while (length && text[length - 1] == ' ') length--;
+    if (!length || length > maxBytes) return nullptr;
+    for (size_t i = 0; i < length; i++) {
+      if ((unsigned char)text[i] < ' ' || text[i] == 127) return nullptr;
+    }
+    return text;
+  }
+
+  // ---- chat ----
+  static uint32_t playerBit(int id) { return 1UL << id; }
+  static uint32_t guestBit(int index) { return 1UL << (AVATAR_COUNT + index); }
+
+  uint32_t bitOf(uint32_t ip) const {
+    int me = playerOf(ip);
+    if (me >= 0) return playerBit(me);
+    for (int i = 0; ip && i < GUEST_COUNT; i++) {
+      if (guests[i].ip == ip) return guestBit(i);
+    }
+    return 0;
+  }
+
+  // Nobody has to wait for this person to see anything any more.
+  void forgetMessages(uint32_t bit) {
+    for (Message &m : messages) {
+      if (!(m.waiting & bit)) continue;
+      m.waiting &= ~bit;
+      if (!m.waiting) m = Message();
+    }
+  }
+
+  void chatJson(uint32_t ip, Writer &w) const {
+    int me = playerOf(ip);
+    uint32_t bit = bitOf(ip);
+    w.add(",\"unseen\":[");
+    const char *comma = "";
+    for (const Message &m : messages) {  // my messages that others still have to see
+      if (me < 0 || m.from != me || !(m.waiting & ~bit)) continue;
+      w.add("%s%lu", comma, (unsigned long)m.seq);
+      comma = ",";
+    }
+    w.add("],\"chat\":[");
+    uint32_t last = 0;
+    for (int n = 0; n < 4; n++) {  // oldest first; the rest follow in the next reply
+      const Message *next = nullptr;
+      for (const Message &m : messages) {
+        if ((m.waiting & bit) && m.seq > last && (!next || m.seq < next->seq)) next = &m;
+      }
+      if (!next) break;
+      last = next->seq;
+      w.add("%s{\"seq\":%lu,\"av\":%d,\"game\":%s,\"text\":", n ? "," : "", (unsigned long)next->seq,
+            next->from, next->opponentOnly ? "true" : "false");
+      w.addString(next->text);
+      w.add("}");
+    }
+    w.add("]");
   }
 
   static bool boardFull(const Match &m) {

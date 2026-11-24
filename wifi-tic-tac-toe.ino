@@ -26,9 +26,19 @@ int intParam(AsyncWebServerRequest *request, const char *name) {
   return request->hasParam(name) ? request->getParam(name)->value().toInt() : -1;
 }
 
+String textParam(AsyncWebServerRequest *request, const char *name) {
+  return request->hasParam(name) ? request->getParam(name)->value() : String();
+}
+
+// Every request says who is there and which chat messages they have now seen.
+void checkIn(AsyncWebServerRequest *request) {
+  game.touch(deviceId(request), millis());
+  game.seen(deviceId(request), textParam(request, "seen").c_str());
+}
+
 void sendState(AsyncWebServerRequest *request) {
   int watch = intParam(request, "watch");
-  char json[1280];
+  char json[4096];
   game.toJson(deviceId(request), watch > 0 ? watch : 0, millis(), json, sizeof json);
   AsyncWebServerResponse *response = request->beginResponse(200, "application/json", json);
   response->addHeader("Cache-Control", "no-store");
@@ -45,7 +55,7 @@ void sendToPortal(AsyncWebServerRequest *request) {
 // Something a phone can ask for. It always gets the resulting state back.
 void onAction(const char *path, ArRequestHandlerFunction action) {
   server.on(path, HTTP_POST, [action](AsyncWebServerRequest *request) {
-    game.touch(deviceId(request), millis());
+    checkIn(request);
     action(request);
     sendState(request);
   });
@@ -76,11 +86,13 @@ void setup() {
   });
 
   server.on("/api/state", HTTP_GET, [](AsyncWebServerRequest *request) {
-    game.touch(deviceId(request), millis());
+    checkIn(request);
     sendState(request);
   });
   onAction("/api/join", [](AsyncWebServerRequest *request) {
-    game.join(deviceId(request), intParam(request, "avatar"), millis());
+    if (game.join(deviceId(request), intParam(request, "avatar"), millis())) {
+      game.setName(deviceId(request), textParam(request, "name").c_str());
+    }
   });
   onAction("/api/leave", [](AsyncWebServerRequest *request) {
     game.leave(deviceId(request), millis());
@@ -105,6 +117,12 @@ void setup() {
   });
   onAction("/api/quit", [](AsyncWebServerRequest *request) {
     game.quit(deviceId(request));
+  });
+  server.on("/api/say", HTTP_POST, [](AsyncWebServerRequest *request) {
+    checkIn(request);
+    bool opponentOnly = intParam(request, "game") == 1;
+    if (game.say(deviceId(request), opponentOnly, textParam(request, "text").c_str(), millis())) sendState(request);
+    else request->send(409);  // the page keeps the text so it can be sent again
   });
 
   // Includes the URLs phones and laptops use to check for a sign-in page.

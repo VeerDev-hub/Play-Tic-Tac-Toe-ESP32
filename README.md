@@ -7,16 +7,30 @@
 **An ESP32 makes its own WiFi. Join it, pick a fighter, challenge someone in the room.**<br>
 **The loser does a dare.**
 
-`NO INTERNET` &nbsp; `NO APP` &nbsp; `NO ACCOUNT` &nbsp; `UP TO 8 PHONES` &nbsp; `4 GAMES AT ONCE`
+`NO INTERNET` &nbsp; `NO APP` &nbsp; `NO ACCOUNT` &nbsp; `UP TO 8 PHONES` &nbsp; `4 GAMES AT ONCE` &nbsp; `YOUR OWN NAME` &nbsp; `VANISHING CHAT`
 
 <img src="docs/match.svg" width="560" alt="Animated match: Chicken beats Potato on the diagonal. Potato has to cluck like a chicken.">
 
+[**Trailer**](#trailer) &nbsp;·&nbsp;
 [**Player select**](#player-select) &nbsp;·&nbsp;
 [**How to play**](#how-to-play) &nbsp;·&nbsp;
+[**Chat**](#chat) &nbsp;·&nbsp;
 [**Insert coin**](#insert-coin) &nbsp;·&nbsp;
 [**Dares**](#dares) &nbsp;·&nbsp;
 [**Cheat codes**](#cheat-codes)
 
+</div>
+
+<img src="docs/divider.svg" width="100%" alt="">
+
+## Trailer
+
+<div align="center">
+<img src="docs/trailer.gif" width="720" alt="Trailer: two phones pick fighters and names, play a match, chat with each other and with everyone, and the loser gets a dare.">
+
+[Watch it as a video](docs/trailer.mp4)
+
+<sub>Recorded from the real game page. The 15-second wait is sped up.</sub>
 </div>
 
 <img src="docs/divider.svg" width="100%" alt="">
@@ -29,6 +43,14 @@
 
 Your fighter is also your X or O. Nobody else can take it while you are in the game. All eight have the same stats.
 
+### Your name
+
+After picking a fighter you can add your name, up to 12 characters. Leave it empty and you are simply Chicken, or whoever you picked. Your name shows in the lobby, in challenges, in the game and in chat. Two players cannot use the same one, and your phone remembers it for next time.
+
+<div align="center">
+<img src="docs/screen-join.png" width="250" alt="Picking Dino and typing the name Kim">
+</div>
+
 <img src="docs/divider.svg" width="100%" alt="">
 
 ## How to play
@@ -39,7 +61,7 @@ Your fighter is also your X or O. Nobody else can take it while you are in the g
 
 1. Join the **`Play Tic-Tac-Toe`** WiFi. It has no password.
 2. Tap the sign-in notification if the game does not open by itself.
-3. Pick a fighter and tap **Ask to play** next to someone in the lobby.
+3. Pick a fighter, add your name if you like, and tap **Ask to play** next to someone in the lobby.
 4. They tap **Play** or **No thanks**. The game starts only if they say yes.
 
 | Button | What it does |
@@ -48,13 +70,14 @@ Your fighter is also your X or O. Nobody else can take it while you are in the g
 | <kbd>Cancel</kbd> | Take the challenge back |
 | <kbd>Watch</kbd> | Spectate a game. Challenges still reach you. |
 | <kbd>Tick tock...</kbd> | One of eight taunts, shown on your opponent's screen |
+| <kbd>Send</kbd> | Chat with your opponent or with everyone. See [Chat](#chat). |
 | <kbd>Rematch</kbd> | Go again if both want to. The loser starts. |
 | <kbd>Play someone else</kbd> | Back to the lobby |
 
 The scoreboard at the top counts who is **here** (has the page open), who has **joined** (picked a fighter) and who is **playing**.
 
 <div align="center">
-<img src="docs/screen-ask.png" width="250" alt="Lobby screen with a challenge from Chicken">
+<img src="docs/screen-ask.png" width="250" alt="Lobby screen with a challenge from Max the Chicken">
 &nbsp;
 <img src="docs/screen-play.png" width="250" alt="Game screen: Frog against Potato, with a taunt">
 &nbsp;
@@ -63,6 +86,29 @@ The scoreboard at the top counts who is **here** (has the page open), who has **
 
 > [!WARNING]
 > Vanish for 20 seconds (a locked screen counts) and you lose your fighter and your game.
+
+### Chat
+
+Type in the box at the bottom of the screen. There are two chats:
+
+| Chat | Who reads it |
+| :-- | :-- |
+| **Only (opponent)** | Just the player you are playing. Watchers do not see it. |
+| **Everyone** | Everybody with the page open, in the lobby or in any game |
+
+In a game you start in the first one, and two buttons above the box switch between them. Messages from the global chat are marked *to everyone*. Outside a game there is only the global chat. You need a fighter to write, but guests can read it.
+
+<div align="center">
+<img src="docs/screen-chat.png" width="250" alt="Two opponent messages and one marked to everyone, each with a countdown line">
+</div>
+
+Messages delete themselves:
+
+- A message disappears 15 seconds after your phone shows it. The red line is the countdown.
+- Your own message stays marked *unseen* until everyone has seen it. Then its 15 seconds start.
+- Tap a message to remove it from your screen sooner.
+
+The ESP32 erases each message once everyone has seen it, and after 60 seconds at the latest. Nothing is saved to flash, but the WiFi is open and unencrypted, so don't send secrets.
 
 ### Stuck on the loading screen?
 
@@ -128,9 +174,10 @@ The ESP32 picks one of these for the loser:
 | A different WiFi name, or fewer devices | top of `wifi-tic-tac-toe.ino` |
 | New fighters, taunts and dares | lists at the start of the script in `page.h` |
 | Rules and timeouts | `game.h` |
+| How long chat messages stay | `MESSAGE_MS` in `page.h` (after being seen, plus the `15s` in the `.msg i` style) and in `game.h` (if never seen) |
 
 > [!TIP]
-> If you add or remove fighters, taunts or dares, change the matching counts at the top of `game.h`.
+> If you add or remove fighters, taunts or dares, change the matching counts at the top of `game.h`. The same goes for `NAME_BYTES` and `MESSAGE_BYTES`, the longest name and chat message.
 
 ### Under the hood
 
@@ -143,10 +190,10 @@ The ESP32 is the referee. Phones only ask for a move, and the board decides whet
 ```text
 wifi-tic-tac-toe/
 ├── wifi-tic-tac-toe.ino   WiFi hotspot and web server
-├── game.h                 lobby and rules, plain C++ with no Arduino code
+├── game.h                 lobby, chat and rules, plain C++ with no Arduino code
 ├── page.h                 the whole game page in one string
 ├── platformio.ini         build settings
-└── docs/                  pixel art and screenshots for this README
+└── docs/                  pixel art, screenshots and trailer for this README
 ```
 
 <div align="center">

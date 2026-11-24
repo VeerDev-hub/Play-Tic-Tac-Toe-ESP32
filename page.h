@@ -1,12 +1,12 @@
 #pragma once
 // The whole game page. Everything is inline because the hotspot has no internet.
-// AVATARS, TAUNTS and DARES below must match the counts in game.h.
+// AVATARS, TAUNTS, DARES, NAME_BYTES and MESSAGE_BYTES below must match game.h.
 
 static const char PAGE[] PROGMEM = R"rawpage(<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content">
 <title>Tic-Tac-Toe</title>
 <style>
   :root {
@@ -54,14 +54,14 @@ static const char PAGE[] PROGMEM = R"rawpage(<!DOCTYPE html>
   .picker button:disabled { opacity: .35; cursor: default; }
 
   .versus { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
-  .card { position: relative; display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 12px; border: 3px solid transparent; min-width: 0; }
+  .card { position: relative; display: flex; align-items: center; gap: 6px; padding: 8px 7px; border-radius: 12px; border: 3px solid transparent; min-width: 0; }
   .card.s0 { background: var(--p0-tint); }
   .card.s1 { background: var(--p1-tint); }
   .card.s0.active { border-color: var(--p0); }
   .card.s1.active { border-color: var(--p1); }
   .card.away { opacity: .55; }
-  .card .face { font-size: 1.8rem; line-height: 1; }
-  .card .who { flex: 1; min-width: 0; font-size: .88rem; font-weight: 700; overflow-wrap: anywhere; }
+  .card .face { font-size: 1.5rem; line-height: 1; }
+  .card .who { flex: 1; min-width: 0; font-size: .84rem; font-weight: 700; overflow-wrap: anywhere; }
   .card .who small { display: block; font-weight: 400; color: var(--soft); }
   .card .score { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; }
   .bubble {
@@ -95,7 +95,7 @@ static const char PAGE[] PROGMEM = R"rawpage(<!DOCTYPE html>
   .taunts button { padding: 8px 11px; border: 2px solid var(--line); border-radius: 99px; background: #fff; font-size: .86rem; }
   .taunts button:disabled { opacity: .45; cursor: default; }
 
-  #notice { position: fixed; z-index: 20; left: 12px; right: 12px; bottom: 14px; max-width: 420px; margin: 0 auto; padding: 11px 14px; border-radius: 12px; background: var(--ink); color: #fff; text-align: center; }
+  #notice { position: fixed; z-index: 20; left: 12px; right: 12px; top: 14px; max-width: 420px; margin: 0 auto; padding: 11px 14px; border-radius: 12px; background: var(--ink); color: #fff; text-align: center; }
   .confetti { position: fixed; z-index: 10; top: -50px; font-size: 1.8rem; pointer-events: none; animation: fall 2.6s linear forwards; }
 
   .counts { display: flex; justify-content: center; flex-wrap: wrap; gap: 2px 16px; margin: -4px 0 14px; padding-bottom: 10px; border-bottom: 2px solid var(--line); font-size: .9rem; color: var(--soft); }
@@ -112,11 +112,49 @@ static const char PAGE[] PROGMEM = R"rawpage(<!DOCTYPE html>
   .small { min-height: 44px; padding: 8px 14px; border: 2px solid var(--line); border-radius: 12px; background: #fff; font-weight: 700; }
   .small.go { border-color: #8c1f12; background: var(--p0); color: #fff; }
 
+  /* Chat floats above the page, so messages coming and going never move the board. */
+  body.chatting { padding-bottom: 92px; }
+  body.chatting .board { max-width: min(100%, 42vh); min-width: 200px; }   /* leaves room for messages */
+  body.chatting.seated { padding-bottom: 138px; }
+  body.chatting.seated .board { max-width: min(100%, 38vh); }
+  @media (max-height: 640px) { body.seated .counts { display: none; } }
+  #chat { position: fixed; z-index: 8; left: 0; right: 0; bottom: 0; pointer-events: none; }
+  #chat > * { max-width: 440px; margin: 0 auto; }
+  #messages { display: flex; flex-direction: column; gap: 6px; max-height: 30vh; padding: 0 14px 8px; overflow-y: auto; }
+  #messages > :first-child { margin-top: auto; }
+  .msg {
+    position: relative; flex: none; align-self: flex-start; max-width: 86%; padding: 7px 12px 9px; overflow: hidden; pointer-events: auto;
+    border: 2px solid var(--ink); border-radius: 14px 14px 14px 4px; background: #fff; box-shadow: 0 3px 8px rgba(70,20,10,.3);
+    font-size: .95rem; overflow-wrap: anywhere; animation: rise .2s;
+  }
+  .msg.own { align-self: flex-end; border-radius: 14px 14px 4px 14px; background: #ffe9a8; }
+  .msg b { margin-right: 6px; }
+  .msg small { margin-left: 8px; color: var(--soft); }
+  .msg i { position: absolute; left: 0; bottom: 0; width: 100%; height: 4px; background: var(--p0); transform-origin: left; animation: burn 15s linear forwards; }
+  #nameBox { display: block; margin-bottom: 16px; font-weight: 700; }
+  #nameBox input { display: block; width: 100%; margin-top: 6px; }
+  .field { padding: 10px 12px; border: 2px solid var(--line); border-radius: 12px; background: #fff; color: inherit; font: inherit; font-size: 16px; font-weight: 400; }
+  .field:focus-visible { outline: 3px solid var(--ink); outline-offset: 1px; }
+  .field::placeholder { color: var(--soft); opacity: 1; }
+  .msg em { margin-left: 8px; font-size: .78rem; font-style: normal; color: var(--soft); }
+  .msg.game { background: var(--p1-tint); }
+  .msg.own.game { background: #ffd9a0; }
+  #sayTo { display: flex; gap: 8px; padding: 8px 14px 0; background: var(--paper); border-top: 3px solid var(--ink); pointer-events: auto; }
+  #sayTo button { flex: 1; min-width: 0; min-height: 38px; padding: 4px 8px; border: 2px solid var(--line); border-radius: 99px; background: #fff; font-size: .88rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #sayTo [aria-pressed="true"] { border-color: var(--ink); background: var(--ink); color: #fff; font-weight: 700; }
+  #sayTo:not([hidden]) + #sayForm { border-top: 0; padding-top: 8px; }
+  #sayForm { display: flex; gap: 8px; padding: 10px 14px; background: var(--paper); border-top: 3px solid var(--ink); pointer-events: auto; }
+  #sayText { flex: 1; min-width: 0; }
+  #sayForm .small:disabled { border-color: var(--line); background: #efe4cb; color: var(--soft); cursor: default; }
+  #sayForm .small { min-height: 46px; }
+
+  @keyframes rise { from { transform: translateY(14px); opacity: 0; } }
+  @keyframes burn { to { transform: scaleX(0); } }
   @keyframes plop { from { transform: scale(.3); } 70% { transform: scale(1.15); } to { transform: scale(1); } }
   @keyframes wiggle { from { transform: rotate(-14deg); } to { transform: rotate(14deg) scale(1.12); } }
   @keyframes shake { 20%, 60% { transform: translateX(-7px); } 40%, 80% { transform: translateX(7px); } }
   @keyframes fall { to { transform: translateY(115vh) rotate(540deg); } }
-  @media (prefers-reduced-motion: reduce) { * { animation: none !important; } .confetti { display: none; } }
+  @media (prefers-reduced-motion: reduce) { * { animation: none !important; } .confetti, .msg i { display: none; } }
 </style>
 </head>
 <body>
@@ -132,7 +170,12 @@ static const char PAGE[] PROGMEM = R"rawpage(<!DOCTYPE html>
     <h1>Pick your fighter</h1>
     <p class="soft">Then choose who to play. The loser has to do a dare.</p>
     <div id="picker" class="picker"></div>
-    <button id="joinBtn" class="primary" disabled>Pick one to join</button>
+    <form id="joinForm" autocomplete="off">
+      <label id="nameBox" hidden>Your name
+        <input id="nameText" class="field" type="text" enterkeyhint="go" autocomplete="off" spellcheck="false">
+      </label>
+      <button id="joinBtn" class="primary" disabled>Pick one to join</button>
+    </form>
   </section>
 
   <section id="lobby" hidden>
@@ -158,6 +201,17 @@ static const char PAGE[] PROGMEM = R"rawpage(<!DOCTYPE html>
   <p id="loading" class="soft" style="margin:0;text-align:center">Finding the game&hellip;</p>
 </main>
 <div id="notice" role="alert" hidden></div>
+<div id="chat">
+  <div id="messages" role="log" aria-label="Chat"></div>
+  <div id="sayTo" role="group" aria-label="Who to message" hidden>
+    <button id="toGame"></button>
+    <button id="toAll">Everyone</button>
+  </div>
+  <form id="sayForm" autocomplete="off" hidden>
+    <input id="sayText" class="field" type="text" aria-label="Chat message" enterkeyhint="send" autocomplete="off">
+    <button id="sayBtn" class="small go">Send</button>
+  </form>
+</div>
 
 <script>
 (function () {
@@ -181,6 +235,8 @@ static const char PAGE[] PROGMEM = R"rawpage(<!DOCTYPE html>
     'Use your hand as a phone and order a pizza.',
     'Find a wall and apologise to it.'
   ];
+  var NAME_CHARS = 12, NAME_BYTES = 36;          // longest name
+  var MESSAGE_BYTES = 160, MESSAGE_MS = 15000;   // longest message; how long it stays once seen
   var THINKING = [
     '{o} is thinking. Allegedly.', '{o} is planning something silly.',
     'Waiting for {o}. Any day now.', '{o} is staring at the board.'
@@ -192,8 +248,15 @@ static const char PAGE[] PROGMEM = R"rawpage(<!DOCTYPE html>
   var sent = 0, applied = 0, failures = 0, pollTimer, noticeTimer;
   var seenTaunt = [null, null], bubbles = [null, null], celebrated = null;
   var rows = [], invites = [];
+  var messages = {}, sending = false;             // chat messages this phone has, by key
+  var toGame = true, draftMatch = 0;              // who the chat box writes to
 
-  function name(seat) { return AVATARS[match.players[seat].av][1]; }
+  // What somebody is called: their own name if they gave one, or their character.
+  function nameOf(av, from) {
+    var p = (from || state).players.filter(function (p) { return p.av === av; })[0];
+    return p && p.name || AVATARS[av][1];
+  }
+  function name(seat) { return nameOf(match.players[seat].av); }
   function face(seat) { return AVATARS[match.players[seat].av][0]; }
   function player(av) {
     return state.players.filter(function (p) { return p.av === av; })[0] || null;
@@ -213,6 +276,8 @@ static const char PAGE[] PROGMEM = R"rawpage(<!DOCTYPE html>
     var abort = new AbortController();
     var timer = setTimeout(function () { abort.abort(); }, 4000);
     if (watched) path += (path.indexOf('?') < 0 ? '?' : '&') + 'watch=' + watched;
+    var acks = seenMessages();
+    if (acks) path += (path.indexOf('?') < 0 ? '?' : '&') + 'seen=' + acks;
     return fetch('/api/' + path, { method: method, cache: 'no-store', signal: abort.signal })
       .then(function (r) { if (!r.ok) throw new Error(r.status); return r.text(); })
       .then(function (text) {
@@ -258,7 +323,7 @@ static const char PAGE[] PROGMEM = R"rawpage(<!DOCTYPE html>
 
   // ---- drawing ----
   function update(next) {
-    var before = match;
+    var before = match, old = state;
     state = next;
     match = next.match;
 
@@ -267,14 +332,16 @@ static const char PAGE[] PROGMEM = R"rawpage(<!DOCTYPE html>
       seenTaunt = [null, null];
       bubbles = [null, null];
       celebrated = null;
+      toGame = true;
     }
     if (before && (!match || match.id !== before.id)) {
       if (before.seat >= 0) {
         if (state.you < 0) notice('You were gone too long, so your game ended.');
-        else if (quitting !== before.id) notice(AVATARS[before.players[1 - before.seat].av][1] + ' left the game.');
+        else if (quitting !== before.id) notice(nameOf(before.players[1 - before.seat].av, old) + ' left the game.');
       } else if (watching && !match) notice('That game is over.');
     }
     if (!match || match.seat >= 0) watching = 0;
+    receiveChat();
     render();
   }
 
@@ -294,9 +361,11 @@ static const char PAGE[] PROGMEM = R"rawpage(<!DOCTYPE html>
     invites.forEach(function (card, av) {
       var p = player(av);
       card.hidden = !(free && p && p.ask === state.you);
+      setText(card.firstChild, AVATARS[av][0] + ' ' + nameOf(av) + ' wants to play you!');
     });
     if (joining) renderJoin();
     if (match) { checkTaunts(); renderGame(); } else renderLobby();
+    renderChat();
   }
 
   function renderJoin() {
@@ -306,7 +375,10 @@ static const char PAGE[] PROGMEM = R"rawpage(<!DOCTYPE html>
       b.setAttribute('aria-pressed', String(i === picked));
     });
     $('joinBtn').disabled = picked < 0;
-    setText($('joinBtn'), picked < 0 ? 'Pick one to join' : 'Join as ' + AVATARS[picked][1]);
+    $('nameBox').hidden = picked < 0;
+    if (picked < 0) return setText($('joinBtn'), 'Pick one to join');
+    $('nameText').placeholder = 'Or just be ' + AVATARS[picked][1];
+    setText($('joinBtn'), 'Join as ' + (tidy($('nameText').value) || AVATARS[picked][1]));
   }
 
   // What the button in somebody's row does right now.
@@ -331,7 +403,7 @@ static const char PAGE[] PROGMEM = R"rawpage(<!DOCTYPE html>
       var rival = p.match && state.players.filter(function (q) {
         return q !== p && q.match === p.match;
       })[0];
-      var text = rival ? 'playing ' + AVATARS[rival.av][1] : 'ready to play';
+      var text = rival ? 'playing ' + nameOf(rival.av) : 'ready to play';
       if (p === me) text = 'you';
       else if (!p.match) {
         if (me && p.ask === me.av) text = 'wants to play you!';
@@ -341,12 +413,13 @@ static const char PAGE[] PROGMEM = R"rawpage(<!DOCTYPE html>
       }
       var action = rowAction(p);
       r.row.className = 'row' + (p.away ? ' away' : '');
+      setText(r.name, nameOf(av));
       setText(r.note, text);
       r.btn.hidden = !action;
       r.btn.className = 'small' + (action === 'ask' ? ' go' : '');
       setText(r.btn, action === 'watch' ? 'Watch' : action === 'cancel' ? 'Cancel'
         : me && state.refusedBy === av ? 'Ask again' : 'Ask to play');
-      r.btn.setAttribute('aria-label', r.btn.textContent + ': ' + AVATARS[av][1]);
+      r.btn.setAttribute('aria-label', r.btn.textContent + ': ' + nameOf(av));
     });
   }
 
@@ -371,7 +444,7 @@ static const char PAGE[] PROGMEM = R"rawpage(<!DOCTYPE html>
       if (!seated) text = name(match.turn) + ' to move. You are watching.';
       else if (match.turn === me) text = 'Your move, ' + name(me) + '.';
       else if (match.players[opp].away) text = name(opp) + ' wandered off. Go find them.';
-      else text = THINKING[match.round % THINKING.length].replace('{o}', name(opp));
+      else text = THINKING[match.round % THINKING.length].replace('{o}', function () { return name(opp); });
     } else if (match.winner === 2) text = seated ? 'A draw. You are both equally average.' : 'A draw!';
     else if (!seated) text = name(match.winner) + ' wins!';
     else text = match.winner === me ? 'You win!' : name(opp) + ' wins. Ouch.';
@@ -397,7 +470,7 @@ static const char PAGE[] PROGMEM = R"rawpage(<!DOCTYPE html>
     if (hasDare) {
       var lead = seated && match.winner === opp ? 'Your dare:' : 'Dare for ' + name(1 - match.winner) + ':';
       $('dare').textContent = lead;
-      $('dare').appendChild(el('b', '', DARES[match.dare].replace('{w}', name(match.winner))));
+      $('dare').appendChild(el('b', '', DARES[match.dare].replace('{w}', AVATARS[match.players[match.winner].av][1])));
     }
 
     var again = over && seated;
@@ -433,6 +506,131 @@ static const char PAGE[] PROGMEM = R"rawpage(<!DOCTYPE html>
     });
   }
 
+  // ---- chat ----
+  // A message is kept only while it is on screen or the ESP32 still offers it.
+  // Showing it counts as seeing it, so nothing is shown while the page is hidden.
+  function receiveChat() {
+    Object.keys(messages).forEach(function (key) { messages[key].offered = false; });
+    state.chat.forEach(function (m) {
+      var key = m.seq + ':' + m.av + ':' + m.text;
+      if (!messages[key]) messages[key] = { key: key, seq: m.seq, av: m.av, game: m.game, text: m.text, own: m.av === state.you, box: null, gone: false };
+      messages[key].offered = true;
+    });
+    Object.keys(messages).forEach(function (key) {
+      var m = messages[key];
+      if (!m.offered && (m.gone || !m.box)) delete messages[key];
+      // Your own message waits until everyone has seen it.
+      else if (m.box && m.own && !m.timer && state.unseen.indexOf(m.seq) < 0) countDown(m);
+    });
+    showMessages();
+  }
+
+  function showMessages() {
+    if (document.hidden) return;
+    Object.keys(messages).map(function (key) { return messages[key]; })
+      .filter(function (m) { return !m.box && !m.gone; })
+      .sort(function (a, b) { return a.seq - b.seq; })
+      .forEach(function (m) {
+        m.box = el('div', 'msg' + (m.own ? ' own' : '') + (m.game ? ' game' : ''));
+        m.box.appendChild(el('b', '', AVATARS[m.av][0] + (m.own ? '' : ' ' + nameOf(m.av))));
+        m.box.appendChild(document.createTextNode(m.text));
+        if (match && match.seat >= 0 && !m.game) m.box.appendChild(el('em', '', 'to everyone'));
+        m.box.onclick = function () { removeMessage(m); };
+        $('messages').appendChild(m.box);
+        if (!m.own || state.unseen.indexOf(m.seq) < 0) countDown(m);
+        else m.box.appendChild(el('small', '', 'unseen'));
+        $('messages').scrollTop = $('messages').scrollHeight;
+      });
+  }
+
+  function countDown(m) {
+    var note = m.box.querySelector('small');
+    if (note) note.remove();
+    m.box.appendChild(el('i'));
+    m.timer = setTimeout(function () { removeMessage(m); }, MESSAGE_MS);
+  }
+
+  function removeMessage(m) {
+    clearTimeout(m.timer);
+    if (m.box) m.box.remove();
+    m.box = null;
+    m.gone = true;
+    if (!m.offered) delete messages[m.key];
+  }
+
+  // Messages shown here that the ESP32 does not know about yet.
+  function seenMessages() {
+    return Object.keys(messages).map(function (key) { return messages[key]; })
+      .filter(function (m) { return m.offered && (m.box || m.gone); })
+      .map(function (m) { return m.seq; }).join(',');
+  }
+
+  function seated() { return !!match && match.seat >= 0; }
+  function writingToGame() { return seated() && toGame; }
+  function somebodyListens() { return writingToGame() || state.here > 1; }
+
+  function renderChat() {
+    // Text written for an opponent must not end up in the global chat, or with
+    // the next opponent, because the game ended halfway through a sentence.
+    var here = writingToGame() ? match.id : 0;
+    if (draftMatch && draftMatch !== here) $('sayText').value = '';
+    draftMatch = here;
+
+    var canChat = state.you >= 0;
+    $('sayForm').hidden = !canChat;
+    $('sayTo').hidden = !(canChat && seated());
+    document.body.classList.toggle('chatting', canChat);
+    document.body.classList.toggle('seated', seated());
+    if (seated()) {
+      setText($('toGame'), 'Only ' + name(1 - match.seat));
+      $('toGame').setAttribute('aria-pressed', String(toGame));
+      $('toAll').setAttribute('aria-pressed', String(!toGame));
+    }
+    var hint = writingToGame() ? 'Message ' + name(1 - match.seat)
+      : somebodyListens() ? 'Message everyone' : 'Nobody here to chat with yet';
+    if ($('sayText').placeholder !== hint) $('sayText').placeholder = hint;
+    $('sayBtn').disabled = sending || !somebodyListens() || !$('sayText').value.trim();
+  }
+
+  function writeTo(game) {
+    draftMatch = 0;      // switching on purpose keeps what you wrote
+    toGame = game;
+    renderChat();
+    $('sayText').focus();
+  }
+
+  // Removes control characters and the invisible ones that can flip text around.
+  function tidy(text) {
+    return text.replace(/[\u0000-\u001f\u007f\u200b\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, ' ').trim();
+  }
+
+  // Shortens what is in a field by whole characters, so an emoji is never cut in half.
+  function limit(field, maxBytes, maxChars) {
+    var chars = Array.from(field.value);
+    while (chars.length && (chars.length > maxChars || byteLength(chars.join('')) > maxBytes)) chars.pop();
+    if (chars.join('') !== field.value) field.value = chars.join('');
+  }
+
+  function byteLength(text) {
+    try { return encodeURIComponent(text).replace(/%../g, 'x').length; } catch (e) { return Infinity; }
+  }
+
+  function say() {
+    var text = tidy($('sayText').value), game = writingToGame(), matchId = match ? match.id : 0;
+    if (!text || sending || !somebodyListens()) return;
+    if (byteLength(text) > MESSAGE_BYTES) return notice('That message is too long.');
+    sending = true;
+    $('sayText').value = '';
+    renderChat();
+    act('say?game=' + (game ? 1 : 0) + '&text=' + encodeURIComponent(text)).then(function (ok) {
+      // Put it back, but only if it would still go to the same people.
+      var same = game ? writingToGame() && match.id === matchId : !writingToGame();
+      if (!ok && same && !$('sayText').value) $('sayText').value = text;
+      setTimeout(function () { sending = false; renderChat(); }, ok ? 1100 : 0);
+      renderChat();
+    });
+  }
+
   function confetti(emoji) {
     for (var i = 0; i < 22; i++) {
       var c = el('span', 'confetti', emoji);
@@ -454,7 +652,8 @@ static const char PAGE[] PROGMEM = R"rawpage(<!DOCTYPE html>
 
     // One lobby row and one invitation per character, shown when needed. They
     // stay in place between updates, so a tap is never lost to a redraw.
-    var row = el('div', 'row'), who = el('div', 'who', a[1]), note = el('small'), btn = el('button', 'small');
+    var row = el('div', 'row'), who = el('div', 'who'), called = el('span', '', a[1]), note = el('small'), btn = el('button', 'small');
+    who.appendChild(called);
     who.appendChild(note);
     row.appendChild(el('span', 'face', a[0]));
     row.appendChild(who);
@@ -467,9 +666,10 @@ static const char PAGE[] PROGMEM = R"rawpage(<!DOCTYPE html>
       else if (action === 'ask') act('invite?player=' + i);
     };
     $('rows').appendChild(row);
-    rows.push({ row: row, note: note, btn: btn });
+    rows.push({ row: row, name: called, note: note, btn: btn });
 
-    var card = el('div', 'invite', a[0] + ' ' + a[1] + ' wants to play you!');
+    var card = el('div', 'invite');
+    card.appendChild(el('span'));
     var buttons = el('div'), yes = el('button', 'small go', 'Play'), no = el('button', 'small', 'No thanks');
     yes.onclick = function () { act('invite?player=' + i); };
     no.onclick = function () { act('decline?player=' + i); };
@@ -497,11 +697,26 @@ static const char PAGE[] PROGMEM = R"rawpage(<!DOCTYPE html>
     };
     $('taunts').appendChild(b);
   });
-  $('joinBtn').onclick = function () {
-    act('join?avatar=' + picked).then(function (ok) {
-      if (ok && state && state.you < 0) notice('Someone beat you to it. Pick another.');
+  $('joinForm').onsubmit = function (e) {
+    e.preventDefault();
+    if (picked < 0) return;
+    var wanted = tidy($('nameText').value), lower = wanted.toLowerCase();
+    if (wanted && state.players.some(function (p) { return nameOf(p.av).toLowerCase() === lower; })) {
+      return notice('Somebody here is already called ' + wanted + '.');
+    }
+    try { localStorage.setItem('name', wanted); } catch (err) {}
+    $('nameText').blur();
+    act('join?avatar=' + picked + '&name=' + encodeURIComponent(wanted)).then(function (ok) {
+      if (!ok || !state) return;
+      if (state.you < 0) notice('Someone beat you to it. Pick another.');
+      else if (wanted && player(state.you).name !== wanted) notice('That name was just taken, so you are ' + nameOf(state.you) + '.');
     });
   };
+  $('nameText').oninput = function () { limit(this, NAME_BYTES, NAME_CHARS); renderJoin(); };
+  try { $('nameText').value = localStorage.getItem('name') || ''; } catch (err) {}
+  limit($('nameText'), NAME_BYTES, NAME_CHARS);
+  $('toGame').onclick = function () { writeTo(true); };
+  $('toAll').onclick = function () { writeTo(false); };
   $('againBtn').onclick = function () { act('rematch'); };
   $('leaveBtn').onclick = function () { picked = -1; act('leave'); };
   $('quitBtn').onclick = function () {
@@ -513,7 +728,24 @@ static const char PAGE[] PROGMEM = R"rawpage(<!DOCTYPE html>
       render();
     }
   };
-  document.addEventListener('visibilitychange', function () { if (!document.hidden) poll(); });
+  $('sayForm').onsubmit = function (e) { e.preventDefault(); say(); };
+  $('sayText').oninput = function () {
+    limit(this, MESSAGE_BYTES, MESSAGE_BYTES);
+    renderChat();
+  };
+  // Keep the chat box above the on-screen keyboard.
+  if (window.visualViewport) {
+    var view = window.visualViewport, lift = function () {
+      $('chat').style.bottom = Math.max(0, window.innerHeight - view.height - view.offsetTop) + 'px';
+    };
+    view.addEventListener('resize', lift);
+    view.addEventListener('scroll', lift);
+  }
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) return;
+    if (state) showMessages();
+    poll();
+  });
   poll();
 })();
 </script>
